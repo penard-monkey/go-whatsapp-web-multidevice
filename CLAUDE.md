@@ -55,14 +55,23 @@ transcripts", which nobody notices for a day.
 saywhat owns the install; do not hand-copy a binary into `<home>/gowa/bin`.
 
 ```sh
-cd ~/workspace/saywhat && services/gowa/build.sh
+cd ~/workspace/saywhat
+make gowa            # build + install, job untouched
+make gowa-restart    # ...and restart it, verified
 ```
 
-That builds this checkout (`GOWA_SRC` overrides the path), refuses a dirty tree
-unless you pass `--allow-dirty`, stamps `config.AppVersion` with the commit,
+That builds this checkout (`GOWA_SRC` overrides the path), refuses uncommitted
+changes that would reach the binary unless you pass `--allow-dirty`, runs
+`scripts/check-patches.sh`, stamps `config.AppVersion` with the commit,
 installs to `<home>/gowa/bin/gowa`, and keeps the previous binary as
 `gowa.previous`. `services/gowa/SOURCE` records this fork's URL and the ref
 saywhat expects.
+
+`make gowa-restart` then kickstarts the job and waits up to 60s for the paired
+session to come back — `saywhat doctor`'s gowa check reading `logged_in`, not
+merely a process on :3210, since a bad binary can serve the port while logged
+out. If it does not come back it reinstalls `gowa.previous`, restarts again,
+and tells you which of the two states you are in.
 
 `services/gowa/fetch.sh` — the stock upstream release — still exists as the
 fallback for a machine with no checkout. It now refuses to overwrite a fork
@@ -75,8 +84,10 @@ failure this fork is here to prevent.
 Bouncing it drops the live WhatsApp session, and a session that fails to come
 back means re-pairing a real phone by QR. saywhat's own installer goes out of
 its way to leave this job alone (`make install-services` touches only the
-daemon). A new build is picked up on the next restart — when you actually mean
-it:
+daemon).
+
+When you do mean it, `make gowa-restart` is the supported way — it verifies and
+rolls back. By hand, if you want to watch it yourself:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/net.casadelvalle.saywhat.gowa

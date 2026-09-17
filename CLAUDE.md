@@ -110,6 +110,20 @@ Roll back by putting `gowa.previous` back and kickstarting again.
 - **Sync with `scripts/sync-upstream.sh`** (adds the `upstream` remote if it is
   missing, rebases, then runs the guard and the full suite). Rebase, never
   merge, so the patches stay a readable series.
+- **PRs land in this fork, never upstream.** Because this is a GitHub fork,
+  `gh` resolves the base repo to `aldinokemal/go-whatsapp-web-multidevice` by
+  default, and `gh pr create` fails with a misleading "No commits between main
+  and <branch>" instead of saying the base is wrong. A fresh clone must run:
+
+  ```sh
+  gh repo set-default penard-monkey/go-whatsapp-web-multidevice
+  ```
+
+  That writes `remote.origin.gh-resolved = base` into `.git/config` — per
+  clone, shared by this checkout's worktrees. Work is landed as a branch and a
+  PR (`gh pr merge --rebase --delete-branch`), which keeps the series linear.
+  If we ever do want to propose something upstream, that is a deliberate
+  `--repo aldinokemal/...`, not a default.
 - **Mark every patched site** with a `SAYWHAT-PATCH: <id>` comment, and cover
   it with a Go test. A conflict inside one of those blocks during a rebase is
   the system working.

@@ -141,6 +141,92 @@ func FormatContactSummary(name, phone string, plural bool) string {
 	}
 }
 
+// FormatTemplateSummary builds a one-liner for a business template message
+// (the header/body/footer-plus-buttons kind). WhatsApp puts none of that in a
+// text field, so without this a template arrives with empty content and reads
+// downstream as a message that says nothing at all.
+//
+// SAYWHAT-PATCH: template-summary. Upstream has no template rendering; see
+// PATCHES.md at the repo root before removing or renaming this.
+func FormatTemplateSummary(tpl *waE2E.TemplateMessage) string {
+	if tpl == nil {
+		return ""
+	}
+	hydrated := tpl.GetHydratedTemplate()
+	if hydrated == nil {
+		hydrated = tpl.GetHydratedFourRowTemplate()
+	}
+	if hydrated == nil {
+		return ""
+	}
+
+	var parts []string
+	for _, text := range []string{
+		hydrated.GetHydratedTitleText(),
+		hydrated.GetHydratedContentText(),
+		hydrated.GetHydratedFooterText(),
+	} {
+		if t := strings.TrimSpace(text); t != "" {
+			parts = append(parts, t)
+		}
+	}
+
+	var buttons []string
+	for _, b := range hydrated.GetHydratedButtons() {
+		if label := formatHydratedTemplateButton(b); label != "" {
+			buttons = append(buttons, label)
+		}
+	}
+	if len(buttons) > 0 {
+		parts = append(parts, "["+strings.Join(buttons, " | ")+"]")
+	}
+
+	// A template whose every field is empty still happened; say so rather than
+	// hand back "" and look like a message with no content.
+	if len(parts) == 0 {
+		return "Template message"
+	}
+	return strings.Join(parts, "\n")
+}
+
+// formatHydratedTemplateButton renders one button as the text a reader would
+// tap: its label, plus where it goes when that is not obvious from the label.
+//
+// SAYWHAT-PATCH: template-summary.
+func formatHydratedTemplateButton(b *waE2E.HydratedTemplateButton) string {
+	if b == nil {
+		return ""
+	}
+	switch {
+	case b.GetQuickReplyButton() != nil:
+		return strings.TrimSpace(b.GetQuickReplyButton().GetDisplayText())
+	case b.GetUrlButton() != nil:
+		btn := b.GetUrlButton()
+		text, url := strings.TrimSpace(btn.GetDisplayText()), strings.TrimSpace(btn.GetURL())
+		switch {
+		case text != "" && url != "":
+			return fmt.Sprintf("%s: %s", text, url)
+		case url != "":
+			return url
+		default:
+			return text
+		}
+	case b.GetCallButton() != nil:
+		btn := b.GetCallButton()
+		text, phone := strings.TrimSpace(btn.GetDisplayText()), strings.TrimSpace(btn.GetPhoneNumber())
+		switch {
+		case text != "" && phone != "":
+			return fmt.Sprintf("%s: %s", text, phone)
+		case phone != "":
+			return phone
+		default:
+			return text
+		}
+	default:
+		return ""
+	}
+}
+
 // KnownDocumentMIMEByExtension returns a known MIME type for a given Office document extension.
 func KnownDocumentMIMEByExtension(ext string) (string, bool) {
 	return resolveKnownDocumentMIME(ext)
@@ -247,6 +333,13 @@ func ExtractMessageTextFromProto(msg *waE2E.Message) string {
 	// Check for live location
 	if live := msg.GetLiveLocationMessage(); live != nil {
 		return FormatLocationSummary(live.GetCaption(), "", live.GetDegreesLatitude(), live.GetDegreesLongitude())
+	}
+
+	// Check for a business template message. SAYWHAT-PATCH: template-summary.
+	if tpl := msg.GetTemplateMessage(); tpl != nil {
+		if summary := FormatTemplateSummary(tpl); summary != "" {
+			return summary
+		}
 	}
 
 	return ""

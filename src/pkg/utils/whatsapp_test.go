@@ -809,3 +809,104 @@ func TestExtractContextInfoInteractiveMessage(t *testing.T) {
 		}
 	})
 }
+
+// SAYWHAT-PATCH: template-summary. These tests are the guard — if an upstream
+// sync drops the patch, they stop compiling or fail. See PATCHES.md.
+func TestFormatTemplateSummary(t *testing.T) {
+	quickReply := func(text string) *waE2E.HydratedTemplateButton {
+		return &waE2E.HydratedTemplateButton{
+			HydratedButton: &waE2E.HydratedTemplateButton_QuickReplyButton{
+				QuickReplyButton: &waE2E.HydratedTemplateButton_HydratedQuickReplyButton{
+					DisplayText: proto.String(text),
+				},
+			},
+		}
+	}
+	urlButton := func(text, url string) *waE2E.HydratedTemplateButton {
+		return &waE2E.HydratedTemplateButton{
+			HydratedButton: &waE2E.HydratedTemplateButton_UrlButton{
+				UrlButton: &waE2E.HydratedTemplateButton_HydratedURLButton{
+					DisplayText: proto.String(text),
+					URL:         proto.String(url),
+				},
+			},
+		}
+	}
+	callButton := func(text, phone string) *waE2E.HydratedTemplateButton {
+		return &waE2E.HydratedTemplateButton{
+			HydratedButton: &waE2E.HydratedTemplateButton_CallButton{
+				CallButton: &waE2E.HydratedTemplateButton_HydratedCallButton{
+					DisplayText: proto.String(text),
+					PhoneNumber: proto.String(phone),
+				},
+			},
+		}
+	}
+	tpl := func(h *waE2E.TemplateMessage_HydratedFourRowTemplate) *waE2E.TemplateMessage {
+		return &waE2E.TemplateMessage{HydratedTemplate: h}
+	}
+
+	tests := []struct {
+		name string
+		in   *waE2E.TemplateMessage
+		want string
+	}{
+		{"nil message", nil, ""},
+		{"no hydrated format", &waE2E.TemplateMessage{}, ""},
+		{
+			"title, body, footer and buttons",
+			tpl(&waE2E.TemplateMessage_HydratedFourRowTemplate{
+				Title:               &waE2E.TemplateMessage_HydratedFourRowTemplate_HydratedTitleText{HydratedTitleText: "Your order"},
+				HydratedContentText: proto.String("Order #123 is ready for pickup."),
+				HydratedFooterText:  proto.String("Casa del Valle"),
+				HydratedButtons:     []*waE2E.HydratedTemplateButton{quickReply("On my way"), urlButton("Track", "https://example.com/t/123")},
+			}),
+			"Your order\nOrder #123 is ready for pickup.\nCasa del Valle\n[On my way | Track: https://example.com/t/123]",
+		},
+		{
+			"body only",
+			tpl(&waE2E.TemplateMessage_HydratedFourRowTemplate{
+				HydratedContentText: proto.String("Just the body."),
+			}),
+			"Just the body.",
+		},
+		{
+			"call button falls back to the number",
+			tpl(&waE2E.TemplateMessage_HydratedFourRowTemplate{
+				HydratedContentText: proto.String("Questions?"),
+				HydratedButtons:     []*waE2E.HydratedTemplateButton{callButton("", "+573001112233")},
+			}),
+			"Questions?\n[+573001112233]",
+		},
+		{
+			"blank fields still say something",
+			tpl(&waE2E.TemplateMessage_HydratedFourRowTemplate{
+				HydratedContentText: proto.String("   "),
+			}),
+			"Template message",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := FormatTemplateSummary(tt.in); got != tt.want {
+				t.Errorf("FormatTemplateSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A template message must reach callers as text, not as empty content.
+func TestExtractMessageTextFromProtoRendersTemplate(t *testing.T) {
+	msg := &waE2E.Message{
+		TemplateMessage: &waE2E.TemplateMessage{
+			HydratedTemplate: &waE2E.TemplateMessage_HydratedFourRowTemplate{
+				HydratedContentText: proto.String("Your table is booked."),
+				HydratedButtons:     []*waE2E.HydratedTemplateButton{{HydratedButton: &waE2E.HydratedTemplateButton_QuickReplyButton{QuickReplyButton: &waE2E.HydratedTemplateButton_HydratedQuickReplyButton{DisplayText: proto.String("Cancel")}}}},
+			},
+		},
+	}
+	want := "Your table is booked.\n[Cancel]"
+	if got := ExtractMessageTextFromProto(msg); got != want {
+		t.Errorf("ExtractMessageTextFromProto() = %q, want %q", got, want)
+	}
+}

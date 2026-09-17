@@ -88,27 +88,25 @@ Roll back by putting `gowa.previous` back and kickstarting again.
 
 ## Working here
 
-- **Upstream has no remote configured.** `origin` is our fork. Add upstream
-  explicitly when you want to sync:
-  `git remote add upstream https://github.com/aldinokemal/go-whatsapp-web-multidevice.git`
-- **Keep our changes as commits on a branch, never as a dirty tree.** A binary
-  built from uncommitted edits cannot be rebuilt, and `go version -m` on it
-  reports only `vcs.modified=true` — which is how you get a running server
-  nobody can reproduce. (There is one of those on this machine right now; see
-  below.)
+- **Our patches live in `PATCHES.md`.** Every change on top of upstream is a
+  row there with a sentinel string, and `scripts/check-patches.sh` fails if one
+  vanishes. saywhat's `build.sh` runs it and refuses to build without it, so a
+  patch lost in a sync cannot reach a binary.
+- **Nothing about this is automatic in git.** A merge or rebase conflicts only
+  when upstream touched the *same lines*; a refactor around our code merges
+  clean and silently stops running it, and a reset to upstream drops everything
+  without a word. The guard is the reminder — do not rely on remembering.
+- **Sync with `scripts/sync-upstream.sh`** (adds the `upstream` remote if it is
+  missing, rebases, then runs the guard and the full suite). Rebase, never
+  merge, so the patches stay a readable series.
+- **Mark every patched site** with a `SAYWHAT-PATCH: <id>` comment, and cover
+  it with a Go test. A conflict inside one of those blocks during a rebase is
+  the system working.
+- **Keep changes as commits, never as a dirty tree.** A binary built from
+  uncommitted edits cannot be rebuilt: `go version -m` reports only
+  `vcs.modified=true`. That is how the `template-summary` patch was nearly
+  lost — recovered on 2026-09-17 by diffing the running binary's symbol table
+  against a clean build of the same revision.
 - Go 1.26 per `src/go.mod`; the module root is `src/`, so run Go commands
   there, not at the repo root.
 - Run `cd src && go build ./... && go test ./...` before proposing a build.
-
-## Known gap, 2026-09-17
-
-`<home>/gowa/bin/gowa` — the binary serving the live session — was built on
-2026-09-16 from revision `e6956e2` (v9.3.1) **with a dirty working tree**, and
-stamped `v9.3.1+saywhat-patches` in `VERSION.patched`. This fork's `main`
-(`473ebbb`) carries no saywhat-specific commits, so whatever those patches
-were, they are not in git and the running server cannot currently be rebuilt
-from source. `gowa.stock-v9.3.1` next to it is the untouched upstream release.
-
-Before building over it: work out what those patches did (diff behaviour
-against `gowa.stock-v9.3.1`, or ask), and land them here as commits. A plain
-build of `main` would drop them without saying so.

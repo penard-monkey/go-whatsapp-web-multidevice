@@ -19,6 +19,7 @@ or the guard fails for everybody.
 | id | What | Sentinel | Files | Test |
 | --- | --- | --- | --- | --- |
 | `template-summary` | Render a business template message (header / body / footer / buttons) as text. Upstream has no template handling at all, so these arrive with empty content and read downstream as a message that says nothing. | `FormatTemplateSummary` | `src/pkg/utils/whatsapp.go` | `TestFormatTemplateSummary`, `TestExtractMessageTextFromProtoRendersTemplate` |
+| `read-self-receipt` | `POST /message/{id}/read-self`: a read receipt only your own devices see, whatever the account's read-receipt privacy says. Upstream's `/read` sends `read`, which whatsmeow downgrades to `read-self` only while privacy is `none` (judged on a cached setting); with receipts on it is a blue tick to the sender. saywhat calls only this route. The receipt type is hard-coded, never taken from the request — `played` is not reachable through it. | `MarkAsReadSelf` | `src/usecase/message.go`, `src/domains/message/interfaces.go`, `src/ui/rest/message.go` | `TestMarkAsReadSelfSendsOnlyReadSelfInADirectChat`, `TestMarkAsReadSelfResolvesTheGroupSenderLikeMarkAsRead`, `TestMarkAsReadSelfRefusesAnUnknownGroupMessage`, `TestMarkAsReadSelfRouteDelegatesToMessageService` |
 
 ## Syncing from upstream
 

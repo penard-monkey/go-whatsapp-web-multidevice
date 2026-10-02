@@ -46,7 +46,16 @@ EOF
 fi
 
 if [ "${1:-}" = "--test" ]; then
+  # Every test named in the Test column, wherever it lives. Naming them rather
+  # than a package means a new patch's tests run without editing this script.
+  tests=$(awk -F'|' '/^\| `/ {print $6}' "$manifest" | grep -o '`[A-Za-z0-9_]*`' | tr -d '`' | paste -sd'|' -)
+  [ -n "$tests" ] || { echo "PATCHES.md names no tests" >&2; exit 1; }
   echo "running the tests that cover them"
-  (cd "$repo/src" && go test ./pkg/utils/)
+  out=$(cd "$repo/src" && go test ./... -run "^($tests)\$" -v 2>&1) || { echo "$out" >&2; exit 1; }
+  # A test renamed away from its row would match nothing and pass silently.
+  for t in ${tests//|/ }; do
+    grep -q -- "--- PASS: $t " <<< "$out" || { echo "  NOT RUN $t" >&2; exit 1; }
+    printf '  pass    %s\n' "$t"
+  done
 fi
 echo "all patches present"

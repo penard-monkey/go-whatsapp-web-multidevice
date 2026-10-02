@@ -114,6 +114,25 @@ func normalizeGroupReadSender(ctx context.Context, client *whatsmeow.Client, raw
 }
 
 func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
+	return service.markAsRead(ctx, request)
+}
+
+// MarkAsReadSelf sends a read receipt that only your own devices see.
+//
+// SAYWHAT-PATCH: read-self-receipt. whatsmeow downgrades a plain read receipt
+// to read-self only while the account's read-receipt privacy is "none", and
+// decides that on a cached copy of the setting. Passing read-self explicitly
+// skips that branch: the receipt is self-only whatever the setting says. The
+// type is fixed here rather than taken from the request, so nothing can reach
+// the played receipt through this route; whatsmeow never downgrades that one.
+func (service serviceMessage) MarkAsReadSelf(ctx context.Context, request domainMessage.MarkAsReadRequest) (response domainMessage.GenericResponse, err error) {
+	return service.markAsRead(ctx, request, types.ReceiptTypeReadSelf)
+}
+
+// markAsRead resolves the chat and, for a group, the original sender, then
+// sends the receipt. SAYWHAT-PATCH: read-self-receipt: this was the body of
+// MarkAsRead, taken out so MarkAsReadSelf resolves senders the same way.
+func (service serviceMessage) markAsRead(ctx context.Context, request domainMessage.MarkAsReadRequest, receiptTypes ...types.ReceiptType) (response domainMessage.GenericResponse, err error) {
 	if err = validations.ValidateMarkAsRead(ctx, request); err != nil {
 		return response, err
 	}
@@ -159,15 +178,16 @@ func (service serviceMessage) MarkAsRead(ctx context.Context, request domainMess
 	}
 
 	ids := []types.MessageID{request.MessageID}
-	if err = service.markRead(ctx, client, ids, time.Now(), chatJID, senderJID); err != nil {
+	if err = service.markRead(ctx, client, ids, time.Now(), chatJID, senderJID, receiptTypes...); err != nil {
 		return response, err
 	}
 
 	logrus.Info(map[string]any{
-		"phone":      request.Phone,
-		"message_id": request.MessageID,
-		"chat":       chatJID.String(),
-		"sender":     senderJID.String(),
+		"phone":        request.Phone,
+		"message_id":   request.MessageID,
+		"chat":         chatJID.String(),
+		"sender":       senderJID.String(),
+		"receipt_type": receiptTypes,
 	})
 
 	response.MessageID = request.MessageID

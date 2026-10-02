@@ -44,6 +44,39 @@ func TestMarkAsPlayedRouteDelegatesToMessageService(t *testing.T) {
 	require.Equal(t, "628123456789@s.whatsapp.net", service.request.Phone)
 }
 
+// SAYWHAT-PATCH: read-self-receipt.
+type readSelfMessageServiceStub struct {
+	domainMessage.IMessageUsecase
+	request *domainMessage.MarkAsReadRequest
+}
+
+func (stub *readSelfMessageServiceStub) MarkAsReadSelf(_ context.Context, request domainMessage.MarkAsReadRequest) (domainMessage.GenericResponse, error) {
+	stub.request = &request
+	return domainMessage.GenericResponse{MessageID: request.MessageID, Status: "read-self"}, nil
+}
+
+// The route reaches MarkAsReadSelf and nothing else: the embedded interface is
+// nil, so a call to MarkAsRead or MarkAsPlayed from this handler would panic.
+func TestMarkAsReadSelfRouteDelegatesToMessageService(t *testing.T) {
+	app := fiber.New()
+	service := &readSelfMessageServiceStub{}
+	InitRestMessage(app, service, nil)
+
+	request := httptest.NewRequest(
+		"POST",
+		"/message/message-1/read-self",
+		strings.NewReader(`{"phone":"628123456789"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := app.Test(request)
+
+	require.NoError(t, err)
+	require.Equal(t, fiber.StatusOK, response.StatusCode)
+	require.NotNil(t, service.request)
+	require.Equal(t, "message-1", service.request.MessageID)
+	require.Equal(t, "628123456789@s.whatsapp.net", service.request.Phone)
+}
+
 func TestPublicStaticPath(t *testing.T) {
 	tests := []struct {
 		name     string

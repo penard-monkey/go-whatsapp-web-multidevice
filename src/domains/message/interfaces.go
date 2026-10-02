@@ -7,6 +7,8 @@ import (
 // IMessageActions handles message action operations
 type IMessageActions interface {
 	MarkAsRead(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
+	// SAYWHAT-PATCH: read-self-receipt
+	MarkAsReadSelf(ctx context.Context, request MarkAsReadRequest) (response GenericResponse, err error)
 	MarkAsPlayed(ctx context.Context, request MarkAsPlayedRequest) (response GenericResponse, err error)
 	ReactMessage(ctx context.Context, request ReactionRequest) (response GenericResponse, err error)
 	RevokeMessage(ctx context.Context, request RevokeRequest) (response GenericResponse, err error)

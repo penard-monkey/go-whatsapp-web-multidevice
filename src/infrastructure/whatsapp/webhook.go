@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -15,6 +16,22 @@ import (
 	"github.com/aldinokemal/go-whatsapp-web-multidevice/pkg/utils"
 	"github.com/sirupsen/logrus"
 )
+
+// SAYWHAT-PATCH: webhook-client-pool — retain one bounded pool per TLS policy.
+var webhookClients = map[bool]*http.Client{
+	false: newWebhookClient(false),
+	true:  newWebhookClient(true),
+}
+
+func newWebhookClient(insecureSkipVerify bool) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecureSkipVerify}
+	transport.MaxIdleConns = 32
+	transport.MaxIdleConnsPerHost = 2
+	transport.IdleConnTimeout = 30 * time.Second
+	return &http.Client{Timeout: 10 * time.Second, Transport: transport}
+}
 
 func submitWebhook(ctx context.Context, payload map[string]any, url string, webhookConfig *chatstorage.DeviceWebhookConfig) error {
 	// Determine effective config - use device-specific if set, otherwise fall back to global
@@ -30,22 +47,15 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 		}
 	}
 
-	// Configure HTTP client with optional TLS skip verification
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: insecureSkipVerify,
-		},
-	}
-	client := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: transport,
-	}
+	// SAYWHAT-PATCH: webhook-client-pool — device TLS policies never share a pool.
+	client := webhookClients[insecureSkipVerify]
 
 	postBody, err := json.Marshal(payload)
 	if err != nil {
 		return pkgError.WebhookError(fmt.Sprintf("Failed to marshal body: %v", err))
 	}
 
+	// SAYWHAT-PATCH: webhook-content-length — preserve framing on every attempt.
 	// Pass the body to NewRequestWithContext so it sets ContentLength and GetBody.
 	// Building the request with a nil body makes Go fall back to chunked transfer
 	// encoding with no Content-Length, which some receivers (notably PHP reading
@@ -69,6 +79,7 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 	var sleepDuration = 1 * time.Second
 
 	for attempt = 0; attempt < maxAttempts; attempt++ {
+		// SAYWHAT-PATCH: webhook-content-length — retries keep the full body.
 		// Rewind the body for each attempt. GetBody returns a fresh reader while
 		// leaving ContentLength intact, unlike assigning req.Body directly.
 		body, err := req.GetBody()
@@ -79,7 +90,10 @@ func submitWebhook(ctx context.Context, payload map[string]any, url string, webh
 
 		resp, err := client.Do(req)
 		if err == nil {
-			defer resp.Body.Close()
+			// SAYWHAT-PATCH: webhook-client-pool — finish responses before retrying.
+			// Small responses reach EOF for reuse; large ones are closed without reuse.
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+			_ = resp.Body.Close()
 			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				logrus.Infof("Successfully submitted webhook on attempt %d", attempt+1)
 				return nil

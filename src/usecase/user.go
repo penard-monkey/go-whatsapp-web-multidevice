@@ -308,14 +308,42 @@ func (service serviceUser) MyListContacts(ctx context.Context) (response domainU
 		return
 	}
 
+	var getPN pnForLIDFunc
+	if client.Store.LIDs != nil {
+		getPN = client.Store.LIDs.GetPNForLID
+	}
 	for jid, contact := range contacts {
 		response.Data = append(response.Data, domainUser.MyListContactsResponseData{
-			JID:  jid,
-			Name: contactInfoDisplayName(contact),
+			JID:      jid,
+			Name:     contactInfoDisplayName(contact),
+			PhoneJID: contactPhoneJID(ctx, getPN, jid),
 		})
 	}
 
 	return response, nil
+}
+
+// pnForLIDFunc has the shape of the LID store's GetPNForLID.
+type pnForLIDFunc func(ctx context.Context, lid types.JID) (types.JID, error)
+
+// contactPhoneJID returns the phone JID behind an @lid contact, or "" when
+// jid is not an @lid or the store has no mapping for it. The store answers
+// from an in-memory map once filled, so this is no network call. A failed
+// lookup omits the field rather than failing the whole contact list.
+// SAYWHAT-PATCH: contacts-phone-jid.
+func contactPhoneJID(ctx context.Context, getPN pnForLIDFunc, jid types.JID) string {
+	if jid.Server != types.HiddenUserServer || getPN == nil {
+		return ""
+	}
+	pn, err := getPN(ctx, jid)
+	if err != nil {
+		logrus.Debugf("no phone JID for contact %s: %v", jid, err)
+		return ""
+	}
+	if pn.IsEmpty() {
+		return ""
+	}
+	return pn.ToNonAD().String()
 }
 
 func (service serviceUser) ChangeAvatar(ctx context.Context, request domainUser.ChangeAvatarRequest) (err error) {

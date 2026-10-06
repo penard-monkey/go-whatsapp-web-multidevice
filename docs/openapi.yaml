@@ -5109,6 +5109,13 @@ components:
         name:
           type: string
           example: "Aldino Kemal"
+        phone_jid:
+          type: string
+          description: >-
+            Phone-number JID for an @lid contact, from the local LID store.
+            Present only when jid is @lid and a mapping is known. Chats are
+            keyed by phone JID, so prefer this when opening a chat.
+          example: "573001234567@s.whatsapp.net"
 
 
     GroupParticipantRequestItem:

@@ -71,6 +71,11 @@ type MyListContactsResponse struct {
 type MyListContactsResponseData struct {
 	JID  types.JID `json:"jid"`
 	Name string    `json:"name"`
+	// PhoneJID is the phone-number form of an @lid JID, from the local LID
+	// store. Chats are keyed by phone JID, so opening a contact by its @lid
+	// would start a second chat. Empty for phone entries and unmapped LIDs.
+	// SAYWHAT-PATCH: contacts-phone-jid.
+	PhoneJID string `json:"phone_jid,omitempty"`
 }
 
 type ChangePushNameRequest struct {

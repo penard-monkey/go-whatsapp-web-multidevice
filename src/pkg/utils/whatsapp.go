@@ -1106,10 +1106,25 @@ func LookupWhatsappJID(ctx context.Context, lookup IsOnWhatsAppFunc, jid string)
 
 	for _, v := range data {
 		if v.IsIn {
-			return v.JID.ToNonAD(), true, nil
+			return phoneJIDFromLookup(v), true, nil
 		}
 	}
 	return types.EmptyJID, false, nil
+}
+
+// phoneJIDFromLookup picks the phone-number JID out of a lookup answer.
+// whatsmeow queries in LID addressing mode, so JID is usually the @lid and
+// the phone form is PhoneNumber. Chats are keyed by phone JID, so an @lid is
+// never returned: with no phone form at all, the JID is left empty.
+// SAYWHAT-PATCH: user-check-jid.
+func phoneJIDFromLookup(v types.IsOnWhatsAppResponse) types.JID {
+	for _, jid := range []types.JID{v.PhoneNumber, v.JID} {
+		if jid.Server == types.DefaultUserServer && jid.User != "" {
+			return jid.ToNonAD()
+		}
+	}
+	logrus.Warnf("IsOnWhatsApp answered %s for %s with no phone-number JID", v.JID, v.Query)
+	return types.EmptyJID
 }
 
 // ValidateJidWithLogin validates JID with login check

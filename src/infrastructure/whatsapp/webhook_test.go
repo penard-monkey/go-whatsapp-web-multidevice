@@ -6,13 +6,67 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
+
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/config"
+	"github.com/aldinokemal/go-whatsapp-web-multidevice/domains/chatstorage"
 )
 
 type capturedRequest struct {
 	contentLength    int64
 	transferEncoding []string
 	body             string
+}
+
+// SAYWHAT-PATCH: webhook-client-pool — assert socket reuse, including retries.
+func TestSubmitWebhookReusesConnections(t *testing.T) {
+	previous := config.WhatsappWebhookInsecureSkipVerify
+	config.WhatsappWebhookInsecureSkipVerify = false
+	t.Cleanup(func() { config.WhatsappWebhookInsecureSkipVerify = previous })
+	var attempts atomic.Int32
+	var addresses sync.Map
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		addresses.Store(request.RemoteAddr, true)
+		if attempts.Add(1) == 1 {
+			writer.WriteHeader(http.StatusInternalServerError)
+		}
+		_, _ = writer.Write([]byte("response body must be drained"))
+	}))
+	defer server.Close()
+	defer webhookClients[false].CloseIdleConnections()
+	for delivery := 0; delivery < 20; delivery++ {
+		if err := submitWebhook(context.Background(), map[string]any{"event": "test"}, server.URL, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	connections := 0
+	addresses.Range(func(_, _ any) bool { connections++; return true })
+	if connections != 1 || attempts.Load() != 21 {
+		t.Fatalf("got %d connections for %d attempts, want 1 for 21", connections, attempts.Load())
+	}
+}
+
+// SAYWHAT-PATCH: webhook-client-pool — one device cannot weaken another's TLS.
+func TestWebhookClientsKeepTLSPoliciesSeparate(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		_, _ = writer.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	defer webhookClients[true].CloseIdleConnections()
+	previous := config.WhatsappWebhookInsecureSkipVerify
+	config.WhatsappWebhookInsecureSkipVerify = false
+	t.Cleanup(func() { config.WhatsappWebhookInsecureSkipVerify = previous })
+	if err := submitWebhook(context.Background(), map[string]any{}, server.URL, &chatstorage.DeviceWebhookConfig{WebhookInsecureSkipVerify: true}); err != nil {
+		t.Fatal(err)
+	}
+	response, err := webhookClients[false].Get(server.URL)
+	if err == nil {
+		response.Body.Close()
+		t.Fatal("verified client accepted a self-signed certificate after an insecure device delivery")
+	}
 }
 
 // startCapturingWebhookServer returns a server that records every request it

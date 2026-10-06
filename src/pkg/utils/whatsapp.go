@@ -1065,6 +1065,53 @@ func IsOnWhatsapp(client *whatsmeow.Client, jid string) bool {
 	return true
 }
 
+// IsOnWhatsAppFunc has the shape of whatsmeow's Client.IsOnWhatsApp, so a
+// lookup can be faked in tests without a connected client.
+type IsOnWhatsAppFunc func(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error)
+
+// LookupWhatsappJID checks a number like IsOnWhatsapp, but keeps what that
+// throws away. SAYWHAT-PATCH: user-check-jid.
+//
+//   - It returns the canonical JID WhatsApp answered with (without a device
+//     part), which for some countries is not the typed digits.
+//   - A failed lookup is an error, not "not on WhatsApp": a timeout must not
+//     tell the caller that the number is unregistered.
+//
+// Non-user JIDs (groups, newsletters) are reported as present with no JID,
+// exactly as IsOnWhatsapp does. IsOnWhatsapp itself is left alone for its
+// other callers.
+func LookupWhatsappJID(ctx context.Context, lookup IsOnWhatsAppFunc, jid string) (canonical types.JID, isOn bool, err error) {
+	if !strings.Contains(jid, "@s.whatsapp.net") {
+		return types.EmptyJID, true, nil
+	}
+
+	phone := strings.TrimSuffix(jid, "@s.whatsapp.net")
+	if phone == "" {
+		return types.EmptyJID, false, pkgError.ValidationError("phone: cannot be blank")
+	}
+	if !strings.HasPrefix(phone, "+") {
+		phone = "+" + phone
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	data, err := lookup(ctx, []string{phone})
+	if err != nil {
+		return types.EmptyJID, false, pkgError.InternalServerError(fmt.Sprintf("could not check whether %s is on WhatsApp: %v", phone, err))
+	}
+	if len(data) == 0 {
+		return types.EmptyJID, false, pkgError.InternalServerError(fmt.Sprintf("could not check whether %s is on WhatsApp: empty response", phone))
+	}
+
+	for _, v := range data {
+		if v.IsIn {
+			return v.JID.ToNonAD(), true, nil
+		}
+	}
+	return types.EmptyJID, false, nil
+}
+
 // ValidateJidWithLogin validates JID with login check
 func ValidateJidWithLogin(client *whatsmeow.Client, jid string) (types.JID, error) {
 	MustLogin(client)

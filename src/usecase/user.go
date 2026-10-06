@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,9 @@ import (
 
 type serviceUser struct {
 	chatStorageRepo domainChatStorage.IChatStorageRepository
+	// SAYWHAT-PATCH: user-check-jid. nil means the client's own
+	// IsOnWhatsApp; tests set it to fake WhatsApp's answer.
+	isOnWhatsAppFn func(ctx context.Context, client *whatsmeow.Client, phones []string) ([]types.IsOnWhatsAppResponse, error)
 }
 
 func NewUserService(chatStorageRepo domainChatStorage.IChatStorageRepository) domainUser.IUserUsecase {
@@ -393,10 +397,35 @@ func (service serviceUser) IsOnWhatsApp(ctx context.Context, request domainUser.
 	}
 	utils.MustLogin(client)
 
-	utils.SanitizePhone(&request.Phone)
+	return service.checkOnWhatsApp(ctx, client, request.Phone)
+}
 
-	response.IsOnWhatsApp = utils.IsOnWhatsapp(client, request.Phone)
+// checkOnWhatsApp answers /user/check with the canonical JID, and fails
+// rather than answering false when WhatsApp could not be asked.
+// SAYWHAT-PATCH: user-check-jid.
+func (service serviceUser) checkOnWhatsApp(ctx context.Context, client *whatsmeow.Client, phone string) (response domainUser.CheckResponse, err error) {
+	if strings.TrimSpace(phone) == "" {
+		// Upstream answered true here: a blank phone is not a user JID, so it
+		// fell through to the "groups are always present" branch.
+		return response, pkgError.ValidationError("phone: cannot be blank")
+	}
+	utils.SanitizePhone(&phone)
 
+	lookup := func(ctx context.Context, phones []string) ([]types.IsOnWhatsAppResponse, error) {
+		if service.isOnWhatsAppFn != nil {
+			return service.isOnWhatsAppFn(ctx, client, phones)
+		}
+		return client.IsOnWhatsApp(ctx, phones)
+	}
+
+	jid, isOn, err := utils.LookupWhatsappJID(ctx, lookup, phone)
+	if err != nil {
+		return response, err
+	}
+	response.IsOnWhatsApp = isOn
+	if !jid.IsEmpty() {
+		response.JID = jid.String()
+	}
 	return response, nil
 }
 

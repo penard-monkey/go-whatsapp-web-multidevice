@@ -5162,6 +5162,15 @@ components:
             is_on_whatsapp:
               type: boolean
               example: true
+            jid:
+              type: string
+              description: >-
+                Canonical JID WhatsApp answered with, present only when
+                is_on_whatsapp is true for a user number. It can differ from
+                the typed digits (e.g. Mexico 52 → 521), so address chats with
+                this rather than building one from the phone. A failed lookup
+                returns a 500 error, never is_on_whatsapp false.
+              example: 5215512345678@s.whatsapp.net
     BusinessProfileResponse:
       type: object
       properties:

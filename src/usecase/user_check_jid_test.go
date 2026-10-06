@@ -46,6 +46,42 @@ func TestUserCheckReturnsTheCanonicalJIDForARegisteredNumber(t *testing.T) {
 	assert.JSONEq(t, `{"is_on_whatsapp":true,"jid":"5215512345678@s.whatsapp.net"}`, string(body))
 }
 
+// What the pinned whatsmeow actually answers: it queries in LID addressing
+// mode, so JID is the @lid and the phone form arrives as PhoneNumber. The
+// first deploy returned the @lid; the contract is the phone JID.
+func TestUserCheckReturnsThePhoneJIDWhenWhatsAppAnswersWithALID(t *testing.T) {
+	var queries []string
+	service := serviceUser{isOnWhatsAppFn: fakeIsOnWhatsApp(&queries, []types.IsOnWhatsAppResponse{{
+		Query:       "+525512345678",
+		JID:         types.NewJID("148812093993177", types.HiddenUserServer),
+		PhoneNumber: types.NewJID("5215512345678", types.DefaultUserServer),
+		IsIn:        true,
+	}}, nil)}
+
+	response, err := service.checkOnWhatsApp(context.Background(), nil, "525512345678")
+
+	require.NoError(t, err)
+	assert.True(t, response.IsOnWhatsApp)
+	assert.Equal(t, "5215512345678@s.whatsapp.net", response.JID)
+}
+
+// Registered, but WhatsApp gave no phone form: the @lid is never handed out
+// as the jid, since opening it would start a second chat.
+func TestUserCheckNeverReturnsALIDAsTheJID(t *testing.T) {
+	var queries []string
+	service := serviceUser{isOnWhatsAppFn: fakeIsOnWhatsApp(&queries, []types.IsOnWhatsAppResponse{{
+		Query: "+525512345678",
+		JID:   types.NewJID("148812093993177", types.HiddenUserServer),
+		IsIn:  true,
+	}}, nil)}
+
+	response, err := service.checkOnWhatsApp(context.Background(), nil, "525512345678")
+
+	require.NoError(t, err)
+	assert.True(t, response.IsOnWhatsApp)
+	assert.Empty(t, response.JID)
+}
+
 func TestUserCheckOmitsTheJIDForAnUnregisteredNumber(t *testing.T) {
 	var queries []string
 	service := serviceUser{isOnWhatsAppFn: fakeIsOnWhatsApp(&queries, []types.IsOnWhatsAppResponse{

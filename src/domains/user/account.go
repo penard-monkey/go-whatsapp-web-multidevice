@@ -83,6 +83,11 @@ type CheckRequest struct {
 
 type CheckResponse struct {
 	IsOnWhatsApp bool `json:"is_on_whatsapp"`
+	// JID is the canonical address WhatsApp answered with, which can differ
+	// from the typed digits (Mexico 52→521, Argentina 54→549, Brazil's ninth
+	// digit). Set only when IsOnWhatsApp is true for a user number.
+	// SAYWHAT-PATCH: user-check-jid.
+	JID string `json:"jid,omitempty"`
 }
 
 type BusinessProfileRequest struct {
